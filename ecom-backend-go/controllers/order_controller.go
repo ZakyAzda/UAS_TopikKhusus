@@ -3,7 +3,6 @@ package controllers
 import (
 	"ecom-backend-go/services"
 	"fmt"
-	"os"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -38,18 +37,13 @@ func Checkout(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	// --- MULAI IMPLEMENTASI WA GATEWAY ---
-	// Nomor WA admin diambil dari environment variable ADMIN_WA_NUMBER
-	adminPhone := os.Getenv("ADMIN_WA_NUMBER")
+	pesanAdmin := fmt.Sprintf("🚨 Pesanan Baru Masuk! ID Pesanan: %v. Segera proses pesanan ini!", order.ID.Hex())
 
-	pesanAdmin := fmt.Sprintf("🚨 Pesanan Baru Masuk!\nID Pesanan: %v\nSegera lakukan pengepakan pesanan ini lek!", order.ID.Hex())
-
-	// Publish pesan WA ke RabbitMQ Queue
-	errWa := services.PublishWaNotification(adminPhone, pesanAdmin)
-	if errWa != nil {
-		fmt.Println("Gagal publish antrean WA ke Admin:", errWa)
+	// Publish pesan notifikasi ke RabbitMQ Queue
+	errNotif := services.PublishNotification(pesanAdmin)
+	if errNotif != nil {
+		fmt.Println("Gagal publish antrean Notifikasi:", errNotif)
 	}
-	// --- AKHIR IMPLEMENTASI WA GATEWAY ---
 
 	return c.JSON(fiber.Map{
 		"message": "Pesanan berhasil dibuat lek!",

@@ -11,21 +11,18 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const WaNotificationQueue = "wa_notifications"
+const NotificationQueue = "order_notifications"
 
-type WaNotificationPayload struct {
-	Phone   string `json:"phone"`
+type NotificationPayload struct {
 	Message string `json:"message"`
 }
 
-// PublishWaNotification mengirimkan pesan ke RabbitMQ (Producer)
-func PublishWaNotification(phone string, message string) error {
+// PublishNotification mengirimkan pesan ke RabbitMQ (Producer)
+func PublishNotification(message string) error {
 	if config.RabbitMQConn == nil || config.RabbitMQConn.IsClosed() {
 		// Fallback: Jika RabbitMQ tidak ada, jalankan seperti sebelumnya dengan Goroutine
 		go func() {
-			if err := SendWaMessage(phone, message); err != nil {
-				log.Printf("Fallback Gagal kirim WA ke %s: %v", phone, err)
-			}
+			log.Printf("[NOTIFIKASI FALLBACK] %s\n", message)
 		}()
 		return nil
 	}
@@ -38,7 +35,7 @@ func PublishWaNotification(phone string, message string) error {
 
 	// Pastikan antrean (queue) ada
 	q, err := ch.QueueDeclare(
-		WaNotificationQueue, // name
+		NotificationQueue, // name
 		true,                // durable
 		false,               // delete when unused
 		false,               // exclusive
@@ -49,8 +46,7 @@ func PublishWaNotification(phone string, message string) error {
 		return fmt.Errorf("gagal mendeklarasikan queue: %w", err)
 	}
 
-	payload := WaNotificationPayload{
-		Phone:   phone,
+	payload := NotificationPayload{
 		Message: message,
 	}
 
@@ -80,8 +76,8 @@ func PublishWaNotification(phone string, message string) error {
 	return nil
 }
 
-// StartWaNotificationConsumer menjalankan worker untuk mendengarkan pesan dari antrean RabbitMQ (Consumer)
-func StartWaNotificationConsumer() {
+// StartNotificationConsumer menjalankan worker untuk mendengarkan pesan dari antrean RabbitMQ (Consumer)
+func StartNotificationConsumer() {
 	if config.RabbitMQConn == nil || config.RabbitMQConn.IsClosed() {
 		return
 	}
@@ -94,7 +90,7 @@ func StartWaNotificationConsumer() {
 	// Catatan: channel tidak di-defer close karena goroutine ini berjalan terus menerus
 
 	q, err := ch.QueueDeclare(
-		WaNotificationQueue,
+		NotificationQueue,
 		true,
 		false,
 		false,
@@ -131,28 +127,21 @@ func StartWaNotificationConsumer() {
 	}
 
 	go func() {
-		log.Println("👷 Menjalankan RabbitMQ Worker untuk antrean WA...")
+		log.Println("👷 Menjalankan RabbitMQ Worker untuk antrean Notifikasi...")
 		for d := range msgs {
-			var payload WaNotificationPayload
+			var payload NotificationPayload
 			if err := json.Unmarshal(d.Body, &payload); err != nil {
 				log.Printf("Gagal membaca payload RabbitMQ: %v", err)
-				// Tetap Ack agar tidak looping selamanya jika data memang rusak
 				d.Ack(false)
 				continue
 			}
 
-			// Eksekusi fungsi pengiriman WA
-			err := SendWaMessage(payload.Phone, payload.Message)
-			if err != nil {
-				log.Printf("Worker gagal mengirim WA ke %s: %v", payload.Phone, err)
-				// Tergantung kebutuhan: d.Nack(false, true) untuk requeue
-				// Namun karena bisa menyebabkan spam ke WAHA jika API error, kita log dan Ack saja untuk sementara
-				d.Ack(false) 
-			} else {
-				log.Printf("✅ Worker sukses mengirim WA ke %s", payload.Phone)
-				// Konfirmasi pesan telah sukses diproses
-				d.Ack(false)
-			}
+			// Dummy eksekusi notifikasi (bisa diganti Email/SMS nantinya)
+			log.Printf("✅ Worker memproses notifikasi: %s", payload.Message)
+			
+			// Konfirmasi pesan telah sukses diproses
+			d.Ack(false)
 		}
 	}()
 }
+
