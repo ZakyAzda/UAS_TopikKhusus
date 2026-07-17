@@ -53,6 +53,63 @@ func (r *ProductRepository) GetByID(id string) (models.Product, error) {
 	return product, err
 }
 
+// GetByIDs mengambil list produk berdasarkan kumpulan ID string (hasil dari Elasticsearch)
+// Urutan hasil mengikuti urutan relevance dari Elasticsearch
+func (r *ProductRepository) GetByIDs(ids []string, categoryId string) ([]models.Product, error) {
+	if len(ids) == 0 {
+		return []models.Product{}, nil
+	}
+
+	// Konversi string IDs ke ObjectIDs
+	var objectIDs []primitive.ObjectID
+	for _, id := range ids {
+		oid, err := primitive.ObjectIDFromHex(id)
+		if err == nil {
+			objectIDs = append(objectIDs, oid)
+		}
+	}
+
+	filter := bson.M{"_id": bson.M{"$in": objectIDs}}
+
+	// Filter tambahan berdasarkan kategori (opsional)
+	if categoryId != "" {
+		catOID, err := primitive.ObjectIDFromHex(categoryId)
+		if err == nil {
+			filter["category_id"] = catOID
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cursor, err := config.DB.Collection("products").Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var products []models.Product
+	if err = cursor.All(ctx, &products); err != nil {
+		return nil, err
+	}
+
+	// Urutkan ulang sesuai urutan relevance dari Elasticsearch
+	productMap := make(map[string]models.Product)
+	for _, p := range products {
+		productMap[p.ID.Hex()] = p
+	}
+
+	var ordered []models.Product
+	for _, id := range ids {
+		if p, ok := productMap[id]; ok {
+			ordered = append(ordered, p)
+		}
+	}
+
+	return ordered, nil
+}
+
+
 func (r *ProductRepository) Create(product *models.Product) error {
 	product.ID = primitive.NewObjectID()
 	product.CreatedAt = time.Now()

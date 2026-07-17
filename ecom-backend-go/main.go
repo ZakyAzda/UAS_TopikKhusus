@@ -26,6 +26,8 @@ func main() {
 	config.ConnectRedis() // ✅ Redis: tidak fatal jika gagal, app tetap jalan tanpa cache
 	config.ConnectRabbitMQ()
 	services.StartNotificationConsumer()
+	config.ConnectElasticsearch()
+	services.EnsureProductIndex()
 
 
 	// Inisialisasi Midtrans (akan Fatal jika MIDTRANS_SERVER_KEY kosong)

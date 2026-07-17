@@ -14,6 +14,11 @@ func (s *ProductService) GetAllProducts(search string, categoryId string) ([]mod
 	return s.Repo.GetAll(search, categoryId)
 }
 
+// GetProductsByIDs mengambil produk dari MongoDB berdasarkan list ID (dari hasil Elasticsearch)
+func (s *ProductService) GetProductsByIDs(ids []string, categoryId string) ([]models.Product, error) {
+	return s.Repo.GetByIDs(ids, categoryId)
+}
+
 func (s *ProductService) GetProductByID(id string) (models.Product, error) {
 	product, err := s.Repo.GetByID(id)
 	if err != nil {

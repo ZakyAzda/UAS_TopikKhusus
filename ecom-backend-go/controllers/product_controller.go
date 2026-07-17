@@ -38,8 +38,28 @@ func GetProducts(c *fiber.Ctx) error {
 		_ = productCache.Delete(ctx, cacheKey)
 	}
 
-	// ── Cache MISS: query dari database ──────────────────────────────────────
-	products, err := productService.GetAllProducts(search, categoryId)
+	// ── Cache MISS: query dari database / Elasticsearch ─────────────────────
+	var products []models.Product
+	var err error
+
+	// Jika ada parameter search, gunakan Elasticsearch (full-text search)
+	if search != "" {
+		productIDs := services.SearchProductIDs(search)
+		if productIDs != nil {
+			// ES tersedia: ambil data produk dari MongoDB berdasarkan ID hasil ES
+			c.Set("X-Search-Engine", "elasticsearch")
+			products, err = productService.GetProductsByIDs(productIDs, categoryId)
+		} else {
+			// ES tidak tersedia: fallback ke MongoDB regex
+			c.Set("X-Search-Engine", "mongodb-fallback")
+			products, err = productService.GetAllProducts(search, categoryId)
+		}
+	} else {
+		// Tidak ada search: pakai MongoDB biasa
+		c.Set("X-Search-Engine", "mongodb")
+		products, err = productService.GetAllProducts(search, categoryId)
+	}
+
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal mengambil data produk"})
 	}
@@ -52,7 +72,6 @@ func GetProducts(c *fiber.Ctx) error {
 	}
 
 	c.Set("X-Cache", "MISS")
-	// Kembalikan array langsung untuk Next.js
 	return c.JSON(products)
 }
 
@@ -84,6 +103,9 @@ func CreateProduct(c *fiber.Ctx) error {
 
 	// Invalidasi semua cache produk karena ada data baru
 	invalidateProductCache()
+
+	// Sync produk baru ke Elasticsearch (async agar tidak memperlambat response)
+	go services.IndexProduct(product)
 
 	return c.JSON(fiber.Map{"message": "Produk berhasil ditambah!", "data": product})
 }
@@ -137,6 +159,9 @@ func UpdateProduct(c *fiber.Ctx) error {
 	// Invalidasi semua cache produk karena ada data yang berubah
 	invalidateProductCache()
 
+	// Sync perubahan ke Elasticsearch (async)
+	go services.IndexProduct(product)
+
 	return c.JSON(fiber.Map{
 		"message": "Mantap, barang berhasil diupdate!",
 		"data":    product,
@@ -152,6 +177,9 @@ func DeleteProduct(c *fiber.Ctx) error {
 
 	// Invalidasi semua cache produk karena ada data yang dihapus
 	invalidateProductCache()
+
+	// Hapus dari Elasticsearch index (async)
+	go services.DeleteProductIndex(id)
 
 	return c.JSON(fiber.Map{"message": "Barang berhasil dihapus (ditarik dari etalase)!"})
 }
